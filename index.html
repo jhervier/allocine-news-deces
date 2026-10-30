@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Générateur News Décès</title>
+<title>AlloCiné News Décès</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600&family=Playfair+Display:ital,wght@1,800&display=swap" rel="stylesheet">
@@ -90,15 +90,15 @@ button:disabled{opacity:.4;cursor:not-allowed;filter:none}
   <section class="stage" aria-label="Aperçu">
     <div class="canvas-wrap" id="wrap">
       <canvas id="cv" width="1080" height="1440" aria-label="Aperçu de l'image"></canvas>
-      <div class="drop" id="drop"><div><strong>Glisse une photo ici</strong>ou colle-la avec Ctrl+V, ou choisis un fichier, ou donne un lien.</div></div>
+      <div class="drop" id="drop"><div><strong>Glisse une photo ici</strong>ou colle-la avec Ctrl+V<br>ou choisis un fichier<br>ou donne un lien</div></div>
     </div>
     <p class="hint">Sur l'aperçu : glisse pour recadrer, molette ou deux doigts pour zoomer.</p>
   </section>
 
   <section class="panel">
     <div>
-      <h1>Générateur News Décès</h1>
-      <p class="sub">Image « Disparition » · 1080 × 1440</p>
+      <h1>AlloCiné News Décès</h1>
+      <p class="sub">News Disparition · 1080 × 1440</p>
     </div>
 
     <fieldset>
@@ -121,15 +121,15 @@ button:disabled{opacity:.4;cursor:not-allowed;filter:none}
       <legend>Texte</legend>
       <div class="row">
         <div class="field">
-          <label for="name">Nom de l'acteur ou de l'actrice</label>
-          <textarea id="name" rows="2" placeholder="Nom Prénom" autocomplete="off" spellcheck="false"></textarea>
+          <label for="name">Nom de la personne</label>
+          <input type="text" id="name" placeholder="Nom Prénom" autocomplete="off" spellcheck="false">
         </div>
         <div class="field age">
           <label for="age">Âge</label>
           <input type="number" id="age" placeholder="50" min="0" max="130" inputmode="numeric">
         </div>
       </div>
-      <p class="note" id="textNote">Le texte passe à la ligne tout seul, 3 lignes maximum. Entrée dans le nom force un retour à la ligne.</p>
+      <p class="note" id="textNote">Le texte passe à la ligne tout seul, 3 lignes maximum.</p>
     </fieldset>
 
     <details class="fold" id="fold">
