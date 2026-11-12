@@ -279,12 +279,18 @@ function computeLines(name, age){
   name = (name || '').replace(/\r/g,'').trim() || 'Nom Prénom';
   age = (age || '').trim() || '50';
   var NB = '\u00a0';
-  var full = (name + ' nous a quittés à' + NB + 'l’âge de ' + age + NB + 'ans').toLocaleUpperCase('fr-FR');
+  /* « à l'âge de XX ans » commence toujours à la 2e ligne. La 1re ligne prend le nom
+     + « nous a quittés » ; les mots qui n'y tiennent pas passent au début de la 2e ligne,
+     devant « à l'âge de XX ans ». Espaces insécables : « à l'âge » et « de XX ans » ne se
+     coupent jamais, donc s'il faut une 3e ligne elle commence au moins par « de XX ans ». */
+  var debut = (name.replace(/\s+/g,' ') + ' nous a quittés').toLocaleUpperCase('fr-FR');
+  var fin = ('à' + NB + 'l’âge de' + NB + age + NB + 'ans').toLocaleUpperCase('fr-FR');
   ctx.font = bodyFont();
   ctx.fontKerning = 'normal';
-  var maxW = CFG.right - CFG.left, lines = [];
-  full.split('\n').forEach(function(par){ lines = lines.concat(wrap(par.replace(/[ \t]+/g,' ').trim(), maxW)); });
-  return lines;
+  var maxW = CFG.right - CFG.left;
+  var l1 = wrap(debut, maxW);
+  var reste = l1.slice(1).join(' ');
+  return [l1[0]].concat(wrap(reste ? reste + ' ' + fin : fin, maxW));
 }
 
 function drawText(){
