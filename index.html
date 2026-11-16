@@ -310,7 +310,8 @@ HQ.onUpdate = function(){ schedule(true); };   /* photo nette prête : on redess
 var W = 1080, H = 1440;
 var CFG = {
   yellow: '#fecc00',
-  body:  { size: 66, weight: 500, style: 'normal', pitch: 75,
+  /* approche (tracking) : 0,5 px après chaque lettre, calée sur le rendu Photoshop News */
+  body:  { size: 66, weight: 500, style: 'normal', pitch: 75, track: 0.5,
            stack: "'stratos','Stratos','Stratos Medium','Barlow Semi Condensed','Arial Narrow',sans-serif" },
   label: { size: 46, weight: 700, style: 'italic', gap: 86, left: 100,
            stack: "'wayfinder-cf','Wayfinder CF','Wayfinder CF Bold Italic','Playfair Display',Georgia,serif" },
@@ -371,21 +372,23 @@ function renderPhoto(){
 function bodyFont(){ return CFG.body.style+' '+CFG.body.weight+' '+CFG.body.size+'px '+CFG.body.stack; }
 function labelFont(){ return CFG.label.style+' '+CFG.label.weight+' '+CFG.label.size+'px '+CFG.label.stack; }
 
+/* largeur d'un texte avec l'approche (police courante de ctx) */
+function tw(t){ return ctx.measureText(t).width + t.length*CFG.body.track; }
 function wrap(text, maxW){
   var words = text.split(' ').filter(Boolean), lines = [], cur = '';
   words.forEach(function(w){
     var t = cur ? cur+' '+w : w;
-    if (ctx.measureText(t).width <= maxW || !cur) { cur = t; }
+    if (tw(t) <= maxW || !cur) { cur = t; }
     else { lines.push(cur); cur = w; }
   });
   if (cur) lines.push(cur);
   /* mot unique plus large que la zone : on le coupe lettre par lettre */
   var out = [];
   lines.forEach(function(l){
-    if (ctx.measureText(l).width <= maxW) { out.push(l); return; }
+    if (tw(l) <= maxW) { out.push(l); return; }
     var s = '';
     for (var i=0;i<l.length;i++){
-      if (ctx.measureText(s + l[i]).width > maxW && s) { out.push(s); s = l[i]; } else s += l[i];
+      if (tw(s + l[i]) > maxW && s) { out.push(s); s = l[i]; } else s += l[i];
     }
     if (s) out.push(s);
   });
@@ -415,7 +418,8 @@ function drawText(){
   var lines = computeLines($('name').value, $('age').value);
   ctx.font = bodyFont();
   ctx.fillStyle = CFG.yellow;
-  lines.forEach(function(l,i){ ctx.fillText(l, CFG.left, CFG.firstBaseline + i*CFG.body.pitch); });
+  /* lettre par lettre pour l'approche, positions mesurées depuis le début de la ligne (crénage gardé) */
+  lines.forEach(function(l,i){ for (var j=0;j<l.length;j++) ctx.fillText(l[j], CFG.left + ctx.measureText(l.slice(0, j)).width + j*CFG.body.track, CFG.firstBaseline + i*CFG.body.pitch); });
 
   ctx.font = labelFont();
   ctx.fillStyle = '#fff';
