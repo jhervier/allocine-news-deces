@@ -194,6 +194,8 @@ legend+.textshead .trash{margin-left:0}
 #copySym{flex:0 0 auto;align-self:stretch;width:40px;height:auto;min-height:40px;padding:0;border-radius:6px 0 0 6px;border:1px solid var(--line);border-right:0;background:var(--field);color:var(--muted);font:500 18px Arial,sans-serif}
 #copySym:hover{color:var(--fg)}
 .field:has(>.copy-row){margin-top:0!important}
+#lookStatus{margin-top:8px}
+.look.busy>button{color:var(--muted);pointer-events:none}
 
 /* commandes segmentées */
 .typesw{border:1px solid var(--line);background:var(--field);border-radius:var(--r);padding:3px;gap:3px}
@@ -271,6 +273,15 @@ details.fold>.reset,.reset{margin:10px 0 0;padding:4px 0;background:none;color:v
   </section>
 
   <section class="panel">
+
+    <fieldset>
+      <legend>Lien</legend>
+      <div class="join look">
+        <input type="url" id="look" placeholder="Lien Wikipédia, AlloCiné ou IMDb" inputmode="url" autocomplete="off" spellcheck="false" aria-label="Lien de la personne" title="Remplit le nom, l'âge et la photo depuis Wikidata">
+        <button type="button" id="lookBtn" title="Remplir le nom, l'âge et la photo">Remplir</button>
+      </div>
+      <div class="status" id="lookStatus" role="status" aria-live="polite"></div>
+    </fieldset>
 
     <fieldset>
       <legend>Photo</legend>
@@ -699,6 +710,17 @@ function setPhoto(img, label){
   say(label || 'Photo chargée.', 'ok');
 }
 
+/* retire la photo : retour à l'aperçu vide, export bloqué */
+function clearPhoto(){
+  if (!photo) return;
+  photo = null;
+  $('drop').hidden = false;
+  cv.classList.remove('has-photo');
+  ['copy','dlPng','dlJpg'].forEach(function(id){ $(id).disabled = true; });
+  syncSliderUI(); schedule(true);
+  say('');
+}
+
 function loadBlob(blob, label){
   if (!blob || !/^image\//.test(blob.type)) { say("Ce fichier n'est pas une image.", 'err'); return; }
   var u = URL.createObjectURL(blob), im = new Image();
@@ -719,6 +741,7 @@ function tryImage(src){
 function loadUrl(){
   var u = $('url').value.trim();
   if (!/^https?:\/\//i.test(u)) { say("Colle un lien qui commence par http:// ou https://", 'err'); return; }
+  if (isPersonLink(u)) { $('url').value = ''; $('look').value = u; say("C'est une fiche de personne : elle est passée dans Lien, clique sur Remplir.", 'err'); return; }
   say('Chargement…');
   tryImage(u).then(function(im){ setPhoto(im, 'Photo chargée depuis le lien.'); })
   .catch(function(){
@@ -752,11 +775,114 @@ document.addEventListener('paste', function(e){
   }
   var t = e.clipboardData && e.clipboardData.getData('text');
   var a = document.activeElement;
-  if (a && /^(name|age|copyr|url)$/.test(a.id)) return;
+  if (a && /^(name|age|copyr|url|look)$/.test(a.id)) return;
+  if (t && isPersonLink(t.trim())){ $('look').value = t.trim(); return; }   /* rangé dans Lien, chargé seulement sur « Remplir » */
   if (t && /^https?:\/\/\S+$/i.test(t.trim())){
     $('url').value = t.trim(); loadUrl();
   }
 });
+
+/* ---------- Remplir depuis un lien (Wikipédia, AlloCiné, IMDb) ----------
+   Tout passe par Wikidata (API publique, lisible depuis la page, sans serveur) : un lien Wikipédia
+   donne directement la fiche ; AlloCiné et IMDb sont retrouvés par leur identifiant, que Wikidata
+   enregistre (P1266 = personne AlloCiné, P345 = IMDb). On ne lit jamais les pages AlloCiné/IMDb.
+   Nom = libellé français ; âge = P569 (naissance) et P570 (décès, sinon date du jour) ;
+   photo = P18 sur Wikimedia Commons (le copyright reste à saisir à la main). */
+var WD = 'https://www.wikidata.org/w/api.php?format=json&origin=*&';
+function getJSON(u){ return fetch(u).then(function(r){ if (!r.ok) throw new Error('http'); return r.json(); }); }
+function parseLink(u){
+  var m;
+  if ((m = u.match(/^https?:\/\/([a-z\-]+)\.(?:m\.)?wikipedia\.org\/wiki\/([^?#]+)/i))) return { wiki:m[1].toLowerCase(), title:decodeURIComponent(m[2]).replace(/_/g,' ') };
+  if ((m = u.match(/allocine\.fr\/\S*?(?:cpersonne=|fichepersonne-)(\d+)/i))) return { prop:'P1266', id:m[1] };
+  if ((m = u.match(/imdb\.com\/(?:[a-z\-]+\/)?name\/(nm\d+)/i))) return { prop:'P345', id:m[1] };
+  if ((m = u.match(/wikidata\.org\/(?:wiki|entity)\/(Q\d+)/i))) return { q:m[1] };
+  return null;
+}
+function isPersonLink(u){ return /^https?:\/\//i.test(u || '') && !!parseLink(u.trim()); }
+/* identifiant Wikidata (Q…) de la personne */
+function findQ(p){
+  if (p.q) return Promise.resolve(p.q);
+  if (p.wiki) return getJSON('https://' + p.wiki + '.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1&prop=pageprops&ppprop=wikibase_item&titles=' + encodeURIComponent(p.title))
+    .then(function(j){ var pg = j.query && j.query.pages, k = pg && Object.keys(pg)[0]; return k && pg[k].pageprops && pg[k].pageprops.wikibase_item; });
+  return getJSON(WD + 'action=query&list=search&srlimit=1&srsearch=' + encodeURIComponent('haswbstatement:' + p.prop + '=' + p.id))
+    .then(function(j){ var s = j.query && j.query.search; return s && s[0] && s[0].title; });
+}
+/* valeur d'une propriété : rang « préféré » d'abord, jamais « obsolète » */
+function claim(e, p){
+  var c = ((e.claims && e.claims[p]) || []).filter(function(x){ return x.rank !== 'deprecated' && x.mainsnak && x.mainsnak.datavalue; });
+  c.sort(function(a, b){ return (b.rank === 'preferred') - (a.rank === 'preferred'); });
+  return c.length ? c[0].mainsnak.datavalue.value : null;
+}
+function dateOf(v){
+  var m = v && v.time && v.time.match(/^([+-]\d+)-(\d\d)-(\d\d)/);
+  return m ? { y:+m[1], m:+m[2], d:+m[3], p:v.precision } : null;   /* précision 11 = au jour, 9 = à l'année */
+}
+function ageOf(b, d){
+  var a = d.y - b.y, exact = b.p >= 11 && d.p >= 11;
+  if (exact && (d.m < b.m || (d.m === b.m && d.d < b.d))) a--;
+  return { a:a, exact:exact };
+}
+/* photo Commons : version 2000 px */
+function commons(file){
+  return getJSON('https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&prop=imageinfo&iiprop=url&iiurlwidth=2000&titles=' + encodeURIComponent('File:' + file))
+    .then(function(j){
+      var pg = j.query.pages, k = Object.keys(pg)[0], ii = pg[k].imageinfo && pg[k].imageinfo[0];
+      if (!ii) throw new Error('commons');
+      return { url: ii.thumburl || ii.url };
+    });
+}
+/* écrit un champ du texte, refusé (comme une saisie) s'il fait dépasser les 3 lignes */
+function setText(id, v){
+  var el = $(id), old = el.value; el.value = v;
+  if (computeLines($('name').value, $('age').value).length > CFG.maxLines){ el.value = old; return false; }
+  okText[id] = v; return true;
+}
+var lookSeq = 0;
+function lookSay(msg, kind){ say(msg, kind, 'lookStatus'); }
+function lookup(){
+  var u = $('look').value.trim(), p = parseLink(u), seq = ++lookSeq;
+  if (!p){ lookSay('Colle un lien de fiche Wikipédia, AlloCiné ou IMDb.', 'err'); return; }
+  $('look').parentNode.classList.add('busy'); lookSay('Recherche…');
+  var done = function(){ if (seq === lookSeq) $('look').parentNode.classList.remove('busy'); };
+  findQ(p).then(function(q){
+    if (!q) throw new Error('absent');
+    return getJSON(WD + 'action=wbgetentities&props=labels|claims&languages=fr|mul|en&ids=' + q).then(function(j){ return j.entities[q]; });
+  }).then(function(e){
+    if (seq !== lookSeq) return;
+    var isHuman = ((e.claims && e.claims.P31) || []).some(function(x){ var v = x.mainsnak.datavalue; return v && v.value.id === 'Q5'; });
+    if (!isHuman){ lookSay("Ce lien ne correspond pas à une personne.", 'err'); return; }
+    var L = e.labels || {}, name = (L.fr || L.mul || L.en || {}).value || '';
+    var b = dateOf(claim(e, 'P569')), d = dateOf(claim(e, 'P570')), now = new Date();
+    var bits = [], warns = [];
+    if (b){
+      var ag = ageOf(b, d || { y:now.getFullYear(), m:now.getMonth() + 1, d:now.getDate(), p:11 });
+      if (setText('age', String(ag.a))) bits.push(ag.a + ' ans');
+      if (!d) warns.push("Pas de date de décès sur Wikidata : âge à ce jour");
+      else if (!ag.exact) warns.push('Âge à un an près');
+    } else { setText('age', ''); warns.push('Âge introuvable'); }   /* pas l'âge de la personne précédente */
+    if (name){ if (setText('name', name)) bits.unshift(name); else warns.push('Nom trop long pour 3 lignes'); }
+    schedule(false);
+    var file = claim(e, 'P18'), msg = function(extra){ return (bits.length ? 'Rempli : ' + bits.join(', ') : 'Rien de rempli') + (extra ? ', ' + extra : '') + '.' +(warns.length ? ' ' + warns.join('. ') + '.' : ''); };
+    var kind = warns.length ? 'err' : 'ok';
+    /* pas de photo sur la fiche : on retire celle d'avant, pour ne jamais exporter la mauvaise personne */
+    if (!file){ clearPhoto(); warns.push('Pas de photo sur Wikidata : importe-en une'); lookSay(msg(), 'err'); return; }
+    /* chaque « Remplir » recharge tout : la photo de la fiche remplace celle déjà chargée */
+    return commons(file).then(function(ph){ return tryImage(ph.url); }).then(function(im){
+      if (seq !== lookSeq) return;
+      setPhoto(im, 'Photo Wikipédia chargée.');
+      lookSay(msg('photo'), kind);
+      /* la photo Wikipédia est un dépannage : on pousse à en trouver une meilleure (en rouge) */
+      var s = document.createElement('span'); s.style.color = 'var(--danger)';
+      s.textContent = ' Photo issue de Wikipédia : remplace-la par une vraie photo si tu as le temps.';
+      $('lookStatus').appendChild(s);
+    }).catch(function(){ if (seq === lookSeq){ clearPhoto(); warns.push('Photo Wikipédia illisible : importe-en une'); lookSay(msg(), 'err'); } });
+  }).catch(function(err){
+    if (seq !== lookSeq) return;
+    lookSay(err && err.message === 'absent' ? 'Personne introuvable sur Wikidata pour ce lien : remplis à la main.' : "Wikipédia ne répond pas (connexion, ou trop de recherches d'affilée) : réessaie dans une minute.", 'err');
+  }).then(done, done);
+}
+$('lookBtn').addEventListener('click', lookup);
+$('look').addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); lookup(); } });
 
 /* ---------- Recadrage et zoom : souris, molette, doigts ---------- */
 var ZMIN = 100, ZMAX = 400;
